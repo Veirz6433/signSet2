@@ -1,0 +1,19 @@
+# environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+# large / generated files (models are downloaded; their hashes ARE committed in models/models.lock.json)
+models/*.task
+models/*.part
+*.h5
+*.h5.tmp
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+data/
+skeleton_outputs/
+.DS_Store
+Thumbs.db

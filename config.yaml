@@ -1,0 +1,116 @@
+# ---------------------------------------------------------------------------
+# Skeleton extraction / reconstruction / evaluation - single config file.
+# Every setting that changes extracted numbers is hashed into each HDF5 file
+# (attribute "config_hash"), so two runs with different settings never mix.
+# Relative paths are relative to THIS file's folder.
+# ---------------------------------------------------------------------------
+pipeline_version: "1.1.0"
+
+paths:
+  models_dir: models
+  # Keep outputs and data OUTSIDE OneDrive / Dropbox / Google Drive folders: sync
+  # clients lock files mid-write and can corrupt HDF5 files. "~" = your home folder.
+  output_dir: ~/skeleton_outputs
+  coco_images_dir: ~/skeleton_data/coco/val2017
+  coco_annotations: ~/skeleton_data/coco/coco_wholebody_val_v1.0.json
+
+video:
+  extensions: [".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".3gp"]
+  detect_max_side: 1280        # frames are downscaled to this long side for detection only
+  video_is_mirrored: false     # true only for selfie-preview recordings that were saved flipped
+
+quality:
+  analysis_height: 480         # brightness / blur / motion are measured at this height
+  dark_threshold: 80           # mean luma (0-255) below which the detector gets an enhanced copy
+  target_brightness: 115
+  clahe_clip: 2.0
+
+detection:
+  pose_model: pose_landmarker_heavy.task
+  hand_model: hand_landmarker.task
+  face_model: face_landmarker.task
+  min_pose_detection_confidence: 0.5
+  min_pose_presence_confidence: 0.5
+  min_hand_detection_confidence: 0.3
+  min_hand_presence_confidence: 0.3
+  min_face_detection_confidence: 0.5
+  min_face_presence_confidence: 0.5
+  min_tracking_confidence: 0.5
+  hand_crop_redetect: true     # second hand pass on an upscaled crop (see hand_crop_mode)
+  hand_crop_mode: auto         # auto = crop pass for missed hands AND hands smaller than hand_small_px;
+                               # always = every hand; missing_only = only missed hands (v1.0 behaviour)
+  hand_small_px: 120           # full-frame hands with a box smaller than this are re-detected on a crop
+  hand_crop_upscale_px: 256    # crops smaller than this are upscaled (bicubic) before the hand model
+  hand_crop_scale: 2.2         # crop side ahead of the pose wrist = scale x forearm length (px)
+  hand_crop_min_px: 96
+  hand_assign_max_dist: 0.8    # max |hand wrist - pose wrist| in forearm lengths
+
+cleanup:
+  max_gap_s: 0.15              # gaps up to this long are interpolated (replace with the pilot's measured value)
+  interp_context_frames: 3     # valid frames used on each side of a gap (PCHIP)
+  smoothing_sigma_s: 0.03      # zero-phase Gaussian smoothing (replace with the pilot's knee value)
+  scale_smoothing_sigma_s: 0.25
+  outliers:                    # hand outlier rejection before filling / smoothing (see skel/outliers.py)
+    enabled: true
+    dup_tol: 0.3               # both hands closer than 0.3 hand sizes on average -> duplicate
+    wrist_tol: 0.8             # hand wrist farther than 0.8 forearm lengths from the pose wrist
+    shape_tol: 0.35            # mean of the 5 largest relative bone-length deviations from the clip's median profile
+    spike_tol: 0.35            # Hampel: median joint distance from the temporal median, in hand sizes
+    hampel_window_s: 0.08      # +- window for the temporal median
+
+evaluation:
+  seed: 12345
+  pck_alphas: [0.05, 0.1, 0.2]
+  auc_alpha_max: 0.2
+  bootstrap_resamples: 1000
+  workers: 2                   # parallel variant runs during evaluation (each loads its own models)
+  transforms:
+    shift_frac: [0.05, -0.05]
+    rotate_deg: [10, -10]
+    scale: [0.85, 1.15]
+    shake: {translation_frac: 0.03, rotation_deg: 3.0, smoothness: 0.8}
+    mirror: true
+  degradations:
+    brightness_factor: [0.8, 0.6, 0.4, 0.25, 0.15]
+    gaussian_blur_sigma_720p: [1, 2, 3, 5, 8]
+    motion_blur_len_720p: [5, 9, 15, 21, 31]
+    noise_sigma: [5, 10, 20, 30, 45]
+    downscale_factor: [0.75, 0.5, 0.35, 0.25, 0.15]
+    jpeg_quality: [70, 50, 30, 20, 10]
+    fps_drop_keep_every: [2, 3, 4, 6, 8]
+  gap_test: {max_gap_frames: 10, trials_per_gap: 200, pck_alpha: 0.1, required_pck: 0.95}
+  smoothing_sweep:
+    offline_sigma_s: [0.0, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12]
+    live_min_cutoff_hz: [8.0, 4.0, 2.0, 1.0, 0.5]
+    live_beta: 0.3
+    live_d_cutoff_hz: 1.0
+    max_lag_s: 0.3
+  calibration:
+    # a degraded variant is "bad" if its hand PCK@0.1 vs clean < this fraction of the clip's own
+    # stability baseline b_c (median hand PCK@0.1 under shift / rotate / scale, G2)
+    bad_if_below_fraction_of_baseline: 0.85
+    min_abs_spearman: 0.5      # only label-free metrics at least this correlated are used for QC
+  second_model:
+    enabled: auto              # auto = use rtmlib if installed; true = required; false = skip
+    mode: balanced
+    min_score: 0.3
+
+coco:
+  max_samples: 1500
+  min_hand_box_px: 48
+  min_face_box_px: 48
+  person_crop_expand: 1.3
+  hand_size_bins: [48, 96]     # report hands in [48,96) px and >= 96 px separately
+  models: [mediapipe, mediapipe_v1, rtmw]   # mediapipe_v1 = without the small-hand crop pass; rtmw needs rtmlib
+
+bulk:
+  workers: 2
+  skip_existing: true
+  write_overlay: false
+
+qc:
+  hard_min_any_hand_detection: 0.3   # below this a video always fails QC
+
+overlay:
+  source: smoothed             # smoothed | raw
+  codec: mp4v

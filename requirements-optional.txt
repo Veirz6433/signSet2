@@ -1,0 +1,4 @@
+# Second, independent model (RTMW whole-body) for the agreement check.
+# rtmlib downloads its ONNX weights on first use (needs internet once).
+rtmlib
+onnxruntime>=1.17
